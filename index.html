@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Defect System - Configurable</title>
+    <title>Defect System - Advanced Reporting</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,6 +20,11 @@
         .stat-card:hover { transform: translateY(-5px); }
         .nav-btn { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 600; cursor: pointer; border-radius: 12px; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .nav-btn:hover { transform: scale(1.03); }
+        
+        /* Advanced Filter Styles */
+        .filter-bar { background: #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6; }
+        .filter-label { font-size: 0.85rem; font-weight: 600; color: #495057; margin-bottom: 5px; display: block; }
+
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -28,7 +33,6 @@
     <div id="view-login" class="login-wrapper">
         <div class="login-card">
             <h3 class="text-center fw-bold mb-4 text-dark">System Access</h3>
-            
             <form onsubmit="handleLogin(event)">
                 <div class="mb-3">
                     <label class="form-label text-muted">Select Role</label>
@@ -37,12 +41,10 @@
                         <option value="admin">Administrator</option>
                     </select>
                 </div>
-
                 <div class="mb-4">
                     <label class="form-label">Password</label>
                     <input type="password" id="loginPass" class="form-control form-control-lg" placeholder="••••••••" required>
                 </div>
-
                 <button type="submit" class="btn btn-dark w-100 btn-lg fw-bold">Login</button>
             </form>
         </div>
@@ -121,11 +123,39 @@
             <div id="reports" class="page-section">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <button class="btn btn-link text-decoration-none ps-0" onclick="showPage('dashboard')">← Back</button>
-                    <button class="btn btn-success btn-sm" onclick="exportExcel()">Download Excel</button>
+                    <button class="btn btn-success btn-sm" onclick="exportExcel()">Download Filtered Excel</button>
                 </div>
                 <h3>Master Report</h3>
                 <div id="admin-notice" class="alert alert-warning py-2 small hidden"><strong>Admin Mode:</strong> You have permission to delete records.</div>
-                <input type="text" class="form-control mb-3" placeholder="Filter reports..." onkeyup="renderReportTable(this.value)">
+                
+                <div class="filter-bar">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <span class="filter-label">From Date</span>
+                            <input type="date" id="f_start" class="form-control form-control-sm" onchange="renderReportTable()">
+                        </div>
+                        <div class="col-md-3">
+                            <span class="filter-label">To Date</span>
+                            <input type="date" id="f_end" class="form-control form-control-sm" onchange="renderReportTable()">
+                        </div>
+                        <div class="col-md-2">
+                            <span class="filter-label">Status</span>
+                            <select id="f_status" class="form-select form-select-sm" onchange="renderReportTable()">
+                                <option value="">All Status</option>
+                                <option value="Open">Open</option>
+                                <option value="Closed">Closed</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="filter-label">Search (Keyword)</span>
+                            <input type="text" id="f_text" class="form-control form-control-sm" placeholder="Log No, Part, Resp..." onkeyup="renderReportTable()">
+                        </div>
+                        <div class="col-md-1 d-flex align-items-end">
+                            <button class="btn btn-secondary btn-sm w-100" onclick="clearFilters()">Reset</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="table-responsive bg-white shadow-sm rounded">
                     <table class="table table-bordered mb-0">
                         <thead class="table-dark">
@@ -135,6 +165,7 @@
                                 <th>Date</th>
                                 <th>Equipment</th>
                                 <th>Description</th>
+                                <th>Resp</th>
                                 <th>Remarks</th>
                                 <th class="admin-only hidden text-center">Delete</th>
                             </tr>
@@ -166,14 +197,12 @@
     <script>
         
         // =======================================================
-        //  🔒 CONFIGURATION SECTION (EDIT PASSWORDS HERE)
+        //  🔒 CONFIGURATION SECTION
         // =======================================================
         const SYSTEM_CONFIG = {
-            'admin': 'Pass@32Lwq',   // Password for Administrator
-            'user':  'ASDS@#41'      // Password for Regular User
+            'admin': 'Pass@32Lwq',
+            'user':  'ASDS@#41'
         };
-        // =======================================================
-
 
         // --- DATA STORE ---
         const DB_KEY = 'defect_db_secure';
@@ -187,12 +216,11 @@
             const role = document.getElementById('loginRole').value;
             const pass = document.getElementById('loginPass').value;
 
-            // CHECK PASSWORD AGAINST CONFIG SECTION
             if (SYSTEM_CONFIG[role] && pass === SYSTEM_CONFIG[role]) {
                 const name = role === 'admin' ? 'Administrator' : 'Regular User';
                 loginSuccess(name, role);
             } else {
-                alert("Invalid Password. Please check your credentials.");
+                alert("Invalid Password.");
             }
         }
 
@@ -203,7 +231,6 @@
             document.getElementById('user-badge').innerText = `${name}`;
             document.getElementById('date-display').innerText = new Date().toDateString();
             
-            // Show Admin Notice if Admin
             if(role === 'admin') {
                 document.getElementById('admin-notice').classList.remove('hidden');
             } else {
@@ -323,19 +350,54 @@
             }
         }
 
-        // --- LOGIC: REPORTS & DELETE ---
-        function renderReportTable(filter = '') {
+        // ==========================================================
+        //  ADVANCED REPORTING LOGIC
+        // ==========================================================
+
+        // Helper: Get filtered list based on current UI inputs
+        function getFilteredDefects() {
+            const start = document.getElementById('f_start').value;
+            const end = document.getElementById('f_end').value;
+            const status = document.getElementById('f_status').value;
+            const text = document.getElementById('f_text').value.toLowerCase();
+
+            return defects.filter(d => {
+                // 1. Date Range Check
+                let dateOk = true;
+                if(start && d.entryDate < start) dateOk = false;
+                if(end && d.entryDate > end) dateOk = false;
+
+                // 2. Status Check
+                let statusOk = (status === "") || (d.status === status);
+
+                // 3. Keyword Check
+                let textOk = !text || 
+                             (d.logNo && d.logNo.toLowerCase().includes(text)) || 
+                             (d.part && d.part.toLowerCase().includes(text)) || 
+                             (d.resp && d.resp.toLowerCase().includes(text)) ||
+                             (d.desc && d.desc.toLowerCase().includes(text));
+
+                return dateOk && statusOk && textOk;
+            }).sort((a,b) => new Date(b.entryDate) - new Date(a.entryDate));
+        }
+
+        function renderReportTable() {
             const tbody = document.getElementById('reportTableBody');
-            const adminHeaders = document.querySelectorAll('.admin-only');
+            const list = getFilteredDefects(); // Use the helper
             
+            // Manage Admin Column
+            const adminHeaders = document.querySelectorAll('.admin-only');
             adminHeaders.forEach(el => {
                 if(currentUser.role === 'admin') el.classList.remove('hidden');
                 else el.classList.add('hidden');
             });
 
             tbody.innerHTML = '';
-            const list = defects.filter(d => d.logNo.toLowerCase().includes(filter.toLowerCase()) || d.part.toLowerCase().includes(filter));
-            list.sort((a,b) => new Date(b.entryDate) - new Date(a.entryDate));
+
+            if(list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center p-4 text-muted">No records match your filters</td></tr>';
+                return;
+            }
 
             list.forEach(d => {
                 const badge = d.status === 'Open' ? 'bg-danger' : 'bg-success';
@@ -351,10 +413,19 @@
                         <td>${d.entryDate}</td>
                         <td>${d.part}</td>
                         <td>${d.desc}</td>
+                        <td>${d.resp}</td>
                         <td>${d.remarks || '-'}</td>
                         ${deleteBtn}
                     </tr>`;
             });
+        }
+
+        function clearFilters() {
+            document.getElementById('f_start').value = '';
+            document.getElementById('f_end').value = '';
+            document.getElementById('f_status').value = '';
+            document.getElementById('f_text').value = '';
+            renderReportTable();
         }
 
         function deleteLog(id) {
@@ -367,12 +438,16 @@
 
         function saveData() { localStorage.setItem(DB_KEY, JSON.stringify(defects)); }
 
-        // --- EXPORT FUNCTION ---
+        // --- EXPORT FUNCTION (Now respects filters!) ---
         function exportExcel() {
             if(typeof XLSX === 'undefined') return alert("Error: Excel library not loaded.");
-            if(defects.length === 0) return alert("No data available to export.");
             
-            const data = defects.map(d => ({
+            // Get the FILTERED list, not all defects
+            const list = getFilteredDefects();
+            
+            if(list.length === 0) return alert("No data matches your current filters.");
+            
+            const data = list.map(d => ({
                 "Log No": d.logNo || '',
                 "Status": d.status || '',
                 "Date": d.entryDate || '',
