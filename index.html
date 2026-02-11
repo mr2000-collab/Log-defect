@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Defect System - Image Support</title>
+    <title>Defect System - Image Import/Export</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -21,7 +21,6 @@
         .nav-btn { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 600; cursor: pointer; border-radius: 12px; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .nav-btn:hover { transform: scale(1.03); }
         .filter-bar { background: #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6; }
-        .img-preview { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #ddd; padding: 4px; margin-top: 10px; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -102,9 +101,8 @@
                         </div>
                         
                         <div class="mb-3 p-3 bg-light rounded border">
-                            <label class="form-label fw-bold">Defect Image</label>
+                            <label class="form-label fw-bold">📸 Defect Evidence (Optional)</label>
                             <input type="file" id="inImage" accept="image/*" capture="environment" class="form-control">
-                            <div class="form-text">Upload or Capture photo.</div>
                         </div>
 
                         <button type="submit" id="btnSubmitLog" class="btn btn-primary w-100 btn-lg">Submit Entry</button>
@@ -129,7 +127,7 @@
                     <button class="btn btn-link text-decoration-none ps-0" onclick="showPage('dashboard')">← Back</button>
                     <div class="d-flex gap-2">
                         <input type="file" id="fileImport" accept=".xlsx, .xls" class="hidden" onchange="handleImport(this)">
-                        <button class="btn btn-primary btn-sm admin-only hidden" onclick="triggerImport()">📂 Import</button>
+                        <button class="btn btn-primary btn-sm admin-only hidden" onclick="triggerImport()">📂 Import Excel</button>
                         <button class="btn btn-success btn-sm" onclick="exportExcel()">Download Filtered Excel</button>
                     </div>
                 </div>
@@ -178,7 +176,7 @@
                         <div class="mb-3"><label>Remarks</label><textarea id="modalRem" class="form-control" required></textarea></div>
                         
                         <div class="mb-3 p-3 bg-light rounded border">
-                            <label class="form-label fw-bold">Image </label>
+                            <label class="form-label fw-bold">📸 Proof of Fix (Optional)</label>
                             <input type="file" id="closeImage" accept="image/*" capture="environment" class="form-control">
                         </div>
 
@@ -216,9 +214,8 @@
         
         // ================= CONFIG =================
         const SYSTEM_CONFIG = { 'admin': 'Pass@32Lwq', 'user':  'ASDS@#41' };
-        const DB_KEY = 'defect_db_v5_img';
+        const DB_KEY = 'defect_db_v6_img_export';
         
-        // ================= STATE =================
         let defects = JSON.parse(localStorage.getItem(DB_KEY)) || [];
         let currentUser = null; 
         let chartInstance = null;
@@ -240,7 +237,6 @@
             document.getElementById('user-badge').innerText = name;
             document.getElementById('date-display').innerText = new Date().toDateString();
             
-            // Admin Toggle
             const isAdmin = role === 'admin';
             document.getElementById('admin-notice').classList.toggle('hidden', !isAdmin);
             document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin));
@@ -255,8 +251,7 @@
             document.getElementById('loginPass').value = '';
         }
 
-        // ================= UTILS: IMAGE COMPRESSION =================
-        // Compresses image to max 800px width to save LocalStorage space
+        // ================= UTILS =================
         function compressImage(file) {
             return new Promise((resolve) => {
                 if (!file) return resolve(null);
@@ -267,19 +262,19 @@
                     img.src = event.target.result;
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        const MAX_WIDTH = 800;
+                        // Aggressive compression for Excel compatibility
+                        const MAX_WIDTH = 600; 
                         const scaleSize = MAX_WIDTH / img.width;
                         canvas.width = (scaleSize < 1) ? MAX_WIDTH : img.width;
                         canvas.height = (scaleSize < 1) ? img.height * scaleSize : img.height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL('image/jpeg', 0.5)); // Compress to 50% Quality
+                        resolve(canvas.toDataURL('image/jpeg', 0.5)); 
                     };
                 };
             });
         }
 
-        // ================= NAVIGATION =================
         function showPage(pageId) {
             document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active-page'));
             document.getElementById(pageId).classList.add('active-page');
@@ -288,7 +283,6 @@
             if(pageId === 'reports') renderReportTable();
         }
 
-        // ================= DASHBOARD =================
         function updateDashboard() {
             const now = new Date();
             const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -312,7 +306,7 @@
             });
         }
 
-        // ================= LOG DEFECT =================
+        // ================= LOGIC =================
         async function handleSubmit(e) {
             e.preventDefault();
             const btn = document.getElementById('btnSubmitLog');
@@ -331,12 +325,10 @@
             }
             const id = `${prefix}${nextSerial.toString().padStart(2, '0')}`;
             const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-
-            // Handle Image
             const imgFile = document.getElementById('inImage').files[0];
             const imgData = await compressImage(imgFile);
 
-            const newLog = {
+            defects.push({
                 logNo: id, status: 'Open', entryDate: now.toISOString().split('T')[0],
                 fy: `${fyStart}-${fyStart+1}`,
                 part: document.getElementById('inPart').value,
@@ -344,12 +336,8 @@
                 desc: document.getElementById('inDesc').value,
                 resp: document.getElementById('inResp').value,
                 target: document.getElementById('inTarget').value,
-                compDate: '', remarks: '',
-                imgBefore: imgData, 
-                imgAfter: null
-            };
-
-            defects.push(newLog);
+                compDate: '', remarks: '', imgBefore: imgData, imgAfter: null
+            });
             saveData();
             e.target.reset();
             alert(`Defect Logged: ${id}`);
@@ -357,14 +345,11 @@
             showPage('dashboard');
         }
 
-        // ================= CLOSE DEFECT =================
         function renderCloseTable(filter = '') {
             const tbody = document.getElementById('closeTableBody');
             tbody.innerHTML = '';
             const list = defects.filter(d => d.status === 'Open' && (d.desc.toLowerCase().includes(filter.toLowerCase()) || d.part.toLowerCase().includes(filter.toLowerCase())));
-            
             if(list.length === 0) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted p-4">No open defects found</td></tr>';
-            
             list.forEach(d => {
                 const imgIcon = d.imgBefore ? `<button class="btn btn-sm btn-outline-primary" onclick="viewImages('${d.logNo}')">📷 View</button>` : '-';
                 tbody.innerHTML += `<tr><td><button class="btn btn-sm btn-success" onclick="openCloseModal('${d.logNo}')">Close</button></td><td>${d.logNo}</td><td>${d.entryDate}</td><td>${d.desc}</td><td>${imgIcon}</td></tr>`;
@@ -377,20 +362,16 @@
             e.preventDefault();
             const btn = document.getElementById('btnCloseSubmit');
             btn.disabled = true; btn.innerText = "Processing...";
-
             const id = document.getElementById('modalLogId').value;
             const idx = defects.findIndex(d => d.logNo === id);
             
             if(idx > -1) {
-                // Handle Image
                 const imgFile = document.getElementById('closeImage').files[0];
                 const imgData = await compressImage(imgFile);
-
                 defects[idx].status = 'Closed';
                 defects[idx].compDate = document.getElementById('modalDate').value;
                 defects[idx].remarks = document.getElementById('modalRem').value;
                 defects[idx].imgAfter = imgData;
-
                 saveData();
                 bootstrap.Modal.getInstance(document.getElementById('closeModal')).hide();
                 renderCloseTable();
@@ -398,7 +379,6 @@
             btn.disabled = false; btn.innerText = "Save & Close";
         }
 
-        // ================= REPORTING =================
         function getFilteredDefects() {
             const start = document.getElementById('f_start').value;
             const end = document.getElementById('f_end').value;
@@ -416,37 +396,26 @@
             const tbody = document.getElementById('reportTableBody');
             const list = getFilteredDefects();
             const isAdmin = currentUser && currentUser.role === 'admin';
-            
             tbody.innerHTML = '';
             if(list.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="text-center p-4 text-muted">No records match filters</td></tr>'; return; }
-            
             list.forEach(d => {
                 const badge = d.status === 'Open' ? 'bg-danger' : 'bg-success';
                 let deleteBtn = isAdmin ? `<td class="text-center"><button class="btn btn-sm btn-outline-danger" onclick="deleteLog('${d.logNo}')">🗑</button></td>` : '';
-                
-                // Image Button
-                let imgBtn = '-';
-                if(d.imgBefore || d.imgAfter) {
-                    imgBtn = `<button class="btn btn-sm btn-outline-info" onclick="viewImages('${d.logNo}')">📷</button>`;
-                }
-
+                let imgBtn = (d.imgBefore || d.imgAfter) ? `<button class="btn btn-sm btn-outline-info" onclick="viewImages('${d.logNo}')">📷</button>` : '-';
                 tbody.innerHTML += `<tr><td class="fw-bold">${d.logNo}</td><td><span class="badge ${badge}">${d.status}</span></td><td>${d.entryDate}</td><td>${d.part}</td><td>${d.desc}</td><td>${d.remarks || '-'}</td><td class="text-center">${imgBtn}</td>${deleteBtn}</tr>`;
             });
         }
 
         function viewImages(id) {
             const d = defects.find(x => x.logNo === id);
-            
             const setImg = (elId, msgId, src) => {
                 const img = document.getElementById(elId);
                 const msg = document.getElementById(msgId);
                 if(src) { img.src = src; img.classList.remove('hidden'); msg.classList.add('hidden'); }
                 else { img.classList.add('hidden'); msg.classList.remove('hidden'); }
             };
-
             setImg('viewImgBefore', 'noImgBefore', d.imgBefore);
             setImg('viewImgAfter', 'noImgAfter', d.imgAfter);
-
             new bootstrap.Modal(document.getElementById('imageModal')).show();
         }
 
@@ -454,14 +423,29 @@
         function deleteLog(id) { if(confirm(`Delete Log #${id}?`)) { defects = defects.filter(d => d.logNo !== id); saveData(); renderReportTable(); } }
         function saveData() { localStorage.setItem(DB_KEY, JSON.stringify(defects)); }
 
-        // ================= IMPORT / EXPORT =================
+        // ================= IMPORT / EXPORT WITH IMAGES =================
         function exportExcel() {
             if(typeof XLSX === 'undefined') return alert("Error: Excel library not loaded.");
             const list = getFilteredDefects();
             if(list.length === 0) return alert("No data matches filters.");
             
-            // Exclude large image strings from excel
-            const data = list.map(d => ({ "Log No": d.logNo, "Status": d.status, "Date": d.entryDate, "FY": d.fy, "Part": d.part, "Location": d.loc, "Description": d.desc, "Responsibility": d.resp, "Target Date": d.target, "Completed On": d.compDate, "Remarks": d.remarks, "HasImage": (d.imgBefore ? "Yes" : "No") }));
+            // Map data, including hidden columns for Raw Image Data
+            const data = list.map(d => ({ 
+                "Log No": d.logNo, 
+                "Status": d.status, 
+                "Date": d.entryDate, 
+                "FY": d.fy, 
+                "Part": d.part, 
+                "Location": d.loc, 
+                "Description": d.desc, 
+                "Responsibility": d.resp, 
+                "Target Date": d.target, 
+                "Completed On": d.compDate, 
+                "Remarks": d.remarks, 
+                "HasImage": (d.imgBefore ? "Yes" : "No"),
+                "Raw_Img_Before": d.imgBefore || "", // Hidden in app, visible in Excel
+                "Raw_Img_After": d.imgAfter || ""    // Hidden in app, visible in Excel
+            }));
             
             const ws = XLSX.utils.json_to_sheet(data);
             ws['!cols'] = Object.keys(data[0]).map(k => ({ wch: 15 }));
@@ -471,6 +455,7 @@
         }
 
         function triggerImport() { document.getElementById('fileImport').click(); }
+        
         function handleImport(input) {
             const file = input.files[0];
             if(!file) return;
@@ -481,7 +466,9 @@
                 const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
                 if(json.length === 0) return alert("File empty!");
                 let count = 0;
+                
                 json.forEach(row => {
+                    // Avoid duplicates based on Log No
                     if(!defects.find(d => d.logNo === row["Log No"])) {
                         defects.push({
                             logNo: row["Log No"] || `IMP-${Math.random().toString().substr(2,6)}`,
@@ -495,12 +482,17 @@
                             target: row["Target Date"] || "",
                             compDate: row["Completed On"] || "",
                             remarks: row["Remarks"] || "",
-                            imgBefore: null, imgAfter: null // Cannot import images from Excel easily
+                            // RESTORE IMAGES FROM RAW COLUMNS
+                            imgBefore: row["Raw_Img_Before"] || null, 
+                            imgAfter: row["Raw_Img_After"] || null 
                         });
                         count++;
                     }
                 });
-                saveData(); renderReportTable(); alert(`Imported ${count} records!`); input.value = '';
+                saveData(); 
+                renderReportTable(); 
+                alert(`Imported ${count} records (with images if available)!`); 
+                input.value = '';
             };
             reader.readAsArrayBuffer(file);
         }
