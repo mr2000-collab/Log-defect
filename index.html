@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Defect System - Sequential Logs</title>
+    <title>Defect System - Admin Import</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,11 +20,8 @@
         .stat-card:hover { transform: translateY(-5px); }
         .nav-btn { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 600; cursor: pointer; border-radius: 12px; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .nav-btn:hover { transform: scale(1.03); }
-        
-        /* Filter Bar */
         .filter-bar { background: #e9ecef; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #dee2e6; }
         .filter-label { font-size: 0.85rem; font-weight: 600; color: #495057; margin-bottom: 5px; display: block; }
-
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -123,10 +120,15 @@
             <div id="reports" class="page-section">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <button class="btn btn-link text-decoration-none ps-0" onclick="showPage('dashboard')">← Back</button>
-                    <button class="btn btn-success btn-sm" onclick="exportExcel()">Download Filtered Excel</button>
+                    <div class="d-flex gap-2">
+                        <input type="file" id="fileImport" accept=".xlsx, .xls" class="hidden" onchange="handleImport(this)">
+                        <button class="btn btn-primary btn-sm admin-only hidden" onclick="triggerImport()">📂 Import Excel</button>
+                        
+                        <button class="btn btn-success btn-sm" onclick="exportExcel()">Download Filtered Excel</button>
+                    </div>
                 </div>
                 <h3>Master Report</h3>
-                <div id="admin-notice" class="alert alert-warning py-2 small hidden"><strong>Admin Mode:</strong> You have permission to delete records.</div>
+                <div id="admin-notice" class="alert alert-warning py-2 small hidden"><strong>Admin Mode:</strong> You can Delete and Import records.</div>
                 
                 <div class="filter-bar">
                     <div class="row g-3">
@@ -187,7 +189,7 @@
         };
 
         // --- DATA STORE ---
-        const DB_KEY = 'defect_db_final';
+        const DB_KEY = 'defect_db_v4_import';
         let defects = JSON.parse(localStorage.getItem(DB_KEY)) || [];
         let currentUser = null; 
         let chartInstance = null;
@@ -211,8 +213,16 @@
             document.getElementById('main-app').classList.remove('hidden');
             document.getElementById('user-badge').innerText = `${name}`;
             document.getElementById('date-display').innerText = new Date().toDateString();
-            if(role === 'admin') document.getElementById('admin-notice').classList.remove('hidden');
-            else document.getElementById('admin-notice').classList.add('hidden');
+            
+            // Toggle Admin Features
+            const adminElements = document.querySelectorAll('.admin-only');
+            if(role === 'admin') {
+                document.getElementById('admin-notice').classList.remove('hidden');
+                adminElements.forEach(el => el.classList.remove('hidden'));
+            } else {
+                document.getElementById('admin-notice').classList.add('hidden');
+                adminElements.forEach(el => el.classList.add('hidden'));
+            }
             showPage('dashboard');
         }
 
@@ -223,7 +233,6 @@
             document.getElementById('loginPass').value = '';
         }
 
-        // --- NAVIGATION ---
         function showPage(pageId) {
             document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active-page'));
             document.getElementById(pageId).classList.add('active-page');
@@ -232,7 +241,6 @@
             if(pageId === 'reports') renderReportTable();
         }
 
-        // --- DASHBOARD ---
         function updateDashboard() {
             const now = new Date();
             const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -255,36 +263,21 @@
             });
         }
 
-        // ========================================================
-        //  📝 NEW LOGIC: SEQUENTIAL ID PER MONTH
-        // ========================================================
+        // --- SUBMIT ---
         function handleSubmit(e) {
             e.preventDefault();
             const now = new Date();
-            
-            // 1. Determine Prefix: YYYY/MM/
             const year = now.getFullYear();
             const month = (now.getMonth() + 1).toString().padStart(2, '0');
             const prefix = `${year}/${month}/`;
-            
-            // 2. Find existing logs for THIS month
-            // We look for any Log No that STARTS with "2026/02/" etc.
             const existingForMonth = defects.filter(d => d.logNo.startsWith(prefix));
             
-            // 3. Calculate next Serial Number
             let nextSerial = 1;
             if (existingForMonth.length > 0) {
-                // Map to just the numbers (last part after slash) and find Max
-                const serials = existingForMonth.map(d => {
-                    const parts = d.logNo.split('/');
-                    return parseInt(parts[parts.length - 1]);
-                });
+                const serials = existingForMonth.map(d => parseInt(d.logNo.split('/')[2]));
                 nextSerial = Math.max(...serials) + 1;
             }
-
-            // 4. Construct Final ID: YYYY/MM/01
             const id = `${prefix}${nextSerial.toString().padStart(2, '0')}`;
-            
             const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
 
             const newLog = {
@@ -297,21 +290,18 @@
                 target: document.getElementById('inTarget').value,
                 compDate: '', remarks: ''
             };
-
             defects.push(newLog);
             saveData();
             e.target.reset();
-            alert(`Defect Logged Successfully!\nLog No: ${id}`);
+            alert(`Defect Logged: ${id}`);
             showPage('dashboard');
         }
 
-        // --- CLOSE LOGIC ---
+        // --- CLOSE ---
         function renderCloseTable(filter = '') {
             const tbody = document.getElementById('closeTableBody');
             tbody.innerHTML = '';
-            const list = defects.filter(d => d.status === 'Open' && 
-                (d.desc.toLowerCase().includes(filter.toLowerCase()) || d.part.toLowerCase().includes(filter.toLowerCase()))
-            );
+            const list = defects.filter(d => d.status === 'Open' && (d.desc.toLowerCase().includes(filter.toLowerCase()) || d.part.toLowerCase().includes(filter.toLowerCase())));
             if(list.length === 0) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted p-4">No open defects found</td></tr>';
             list.forEach(d => {
                 tbody.innerHTML += `<tr><td><button class="btn btn-sm btn-outline-success" onclick="openCloseModal('${d.logNo}')">Close</button></td><td>${d.logNo}</td><td>${d.entryDate}</td><td>${d.desc}</td><td>${d.resp}</td></tr>`;
@@ -332,7 +322,7 @@
             }
         }
 
-        // --- REPORTS & FILTER LOGIC ---
+        // --- REPORTING ---
         function getFilteredDefects() {
             const start = document.getElementById('f_start').value;
             const end = document.getElementById('f_end').value;
@@ -349,42 +339,82 @@
         function renderReportTable() {
             const tbody = document.getElementById('reportTableBody');
             const list = getFilteredDefects();
-            document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', currentUser.role !== 'admin'));
+            const isAdmin = currentUser && currentUser.role === 'admin';
+            
+            // UI Admin Check
+            document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin));
+
             tbody.innerHTML = '';
             if(list.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="text-center p-4 text-muted">No records match filters</td></tr>'; return; }
             list.forEach(d => {
                 const badge = d.status === 'Open' ? 'bg-danger' : 'bg-success';
-                let deleteBtn = currentUser.role === 'admin' ? `<td class="text-center"><button class="btn btn-sm btn-outline-danger" onclick="deleteLog('${d.logNo}')">🗑</button></td>` : '';
+                let deleteBtn = isAdmin ? `<td class="text-center"><button class="btn btn-sm btn-outline-danger" onclick="deleteLog('${d.logNo}')">🗑</button></td>` : '';
                 tbody.innerHTML += `<tr><td class="fw-bold">${d.logNo}</td><td><span class="badge ${badge}">${d.status}</span></td><td>${d.entryDate}</td><td>${d.part}</td><td>${d.desc}</td><td>${d.resp}</td><td>${d.remarks || '-'}</td>${deleteBtn}</tr>`;
             });
         }
 
-        function clearFilters() {
-            ['f_start', 'f_end', 'f_status', 'f_text'].forEach(id => document.getElementById(id).value = '');
-            renderReportTable();
-        }
-
-        function deleteLog(id) {
-            if(confirm(`Delete Log #${id}?`)) { defects = defects.filter(d => d.logNo !== id); saveData(); renderReportTable(); }
-        }
-
+        function clearFilters() { ['f_start', 'f_end', 'f_status', 'f_text'].forEach(id => document.getElementById(id).value = ''); renderReportTable(); }
+        function deleteLog(id) { if(confirm(`Delete Log #${id}?`)) { defects = defects.filter(d => d.logNo !== id); saveData(); renderReportTable(); } }
         function saveData() { localStorage.setItem(DB_KEY, JSON.stringify(defects)); }
 
+        // --- IMPORT / EXPORT ---
         function exportExcel() {
             if(typeof XLSX === 'undefined') return alert("Error: Excel library not loaded.");
             const list = getFilteredDefects();
             if(list.length === 0) return alert("No data matches current filters.");
-            
-            const data = list.map(d => ({
-                "Log No": d.logNo, "Status": d.status, "Date": d.entryDate, "FY": d.fy,
-                "Part": d.part, "Location": d.loc, "Description": d.desc, "Responsibility": d.resp,
-                "Target Date": d.target, "Completed On": d.compDate, "Remarks": d.remarks
-            }));
+            const data = list.map(d => ({ "Log No": d.logNo, "Status": d.status, "Date": d.entryDate, "FY": d.fy, "Part": d.part, "Location": d.loc, "Description": d.desc, "Responsibility": d.resp, "Target Date": d.target, "Completed On": d.compDate, "Remarks": d.remarks }));
             const ws = XLSX.utils.json_to_sheet(data);
             ws['!cols'] = Object.keys(data[0]).map(k => ({ wch: 15 }));
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Defects");
             XLSX.writeFile(wb, `Defect_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+
+        function triggerImport() { document.getElementById('fileImport').click(); }
+        
+        function handleImport(input) {
+            const file = input.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet);
+
+                if(json.length === 0) return alert("File appears empty!");
+                
+                let importCount = 0;
+                json.forEach(row => {
+                    // Map headers (Must match Export format)
+                    const newDefect = {
+                        logNo: row["Log No"] || `IMP-${Math.floor(Math.random()*10000)}`,
+                        status: row["Status"] || "Open",
+                        entryDate: row["Date"] || new Date().toISOString().split('T')[0],
+                        fy: row["FY"] || "",
+                        part: row["Part"] || row["Equipment"] || "",
+                        loc: row["Location"] || "",
+                        desc: row["Description"] || "",
+                        resp: row["Responsibility"] || "",
+                        target: row["Target Date"] || "",
+                        compDate: row["Completed On"] || "",
+                        remarks: row["Remarks"] || ""
+                    };
+                    // Avoid strict duplicates based on Log No
+                    if(!defects.find(d => d.logNo === newDefect.logNo)) {
+                        defects.push(newDefect);
+                        importCount++;
+                    }
+                });
+                
+                saveData();
+                renderReportTable();
+                alert(`Successfully imported ${importCount} records!`);
+                input.value = ''; // Reset input
+            };
+            reader.readAsArrayBuffer(file);
         }
     </script>
 </body>
